@@ -1,87 +1,176 @@
 const express = require("express");
 const router = express.Router();
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
+const { body, validationResult } = require("express-validator");
 const User = require("../models/User");
 
-const JWT_SECRET = "your_jwt_secret_key"; // 🟢 Change this to a strong secret
+// ===================== Register route =====================
+router.post(
+  "/register",
+  [
+    body("name").notEmpty().withMessage("Name is required"),
+    body("email").isEmail().withMessage("Valid email is required"),
+    body("password")
+      .isLength({ min: 6 })
+      .withMessage("Password must be at least 6 characters"),
+    body("userType").notEmpty().withMessage("User type is required"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res
+          .status(400)
+          .json({ msg: "Validation failed", errors: errors.array() });
+      }
 
-// Register route
-router.post("/register", async (req, res) => {
-  const { name, email, password, userType } = req.body;
+      const {
+        name,
+        email,
+        password,
+        userType,
+        dateOfBirth,
+        location,
+        education,
+        degree,
+        fieldOfStudy,
+        university,
+        graduationYear,
+        gpa,
+        experience,
+        currentJobTitle,
+        currentCompany,
+        skills,
+        jobType,
+        workType,
+        preferredLocation,
+        salaryRange,
+        industries,
+      } = req.body;
 
-  try {
-    let user = await User.findOne({ email });
-    if (user) {
-      return res.status(400).json({ msg: "User already exists" });
+      // Check if user already exists
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        return res.status(400).json({ msg: "User already exists" });
+      }
+
+      // Hash password
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
+
+      // Create new user
+      const newUser = new User({
+        name,
+        email,
+        password: hashedPassword,
+        userType,
+        dateOfBirth,
+        location,
+        education,
+        degree,
+        fieldOfStudy,
+        university,
+        graduationYear,
+        gpa,
+        experience,
+        currentJobTitle,
+        currentCompany,
+        skills,
+        jobType,
+        workType,
+        preferredLocation,
+        salaryRange,
+        industries,
+        applications: [],
+      });
+
+      await newUser.save();
+
+      const userToReturn = newUser.toObject();
+      delete userToReturn.password;
+
+      res
+        .status(201)
+        .json({ msg: "User registered successfully", user: userToReturn });
+    } catch (error) {
+      console.error("Registration error:", error);
+      res.status(500).json({ msg: "Server error" });
     }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    user = new User({
-      name,
-      email,
-      password: hashedPassword,
-      userType,
-    });
-
-    await user.save();
-
-    const payload = {
-      user: {
-        id: user.id,
-        email: user.email,
-        userType: user.userType,
-      },
-    };
-
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
-
-    res.json({
-      token,
-      user: payload.user,
-    });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server error");
   }
-});
+);
 
-// Login route
-router.post("/login", async (req, res) => {
-  const { email, password, userType } = req.body;
+// ===================== Apply Job route =====================
+router.post(
+  "/apply-job",
+  [
+    body("userId").notEmpty().withMessage("User ID is required"),
+    body("jobId").notEmpty().withMessage("Job ID is required"),
+    body("jobTitle").notEmpty().withMessage("Job title is required"),
+    body("company").notEmpty().withMessage("Company is required"),
+    body("resume").notEmpty().withMessage("Resume link or file is required"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res
+          .status(400)
+          .json({ msg: "Validation failed", errors: errors.array() });
+      }
 
-  try {
-    const user = await User.findOne({ email, userType });
+      const {
+        userId,
+        jobId,
+        jobTitle,
+        company,
+        location,
+        salary,
+        personalInfo,
+        resume,
+        coverLetter,
+      } = req.body;
 
-    if (!user) {
-      return res.status(400).json({ msg: "Invalid credentials" });
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({ msg: "User not found" });
+      }
+
+      // Check if user has already applied to this job
+      const alreadyApplied = user.applications.some(
+        (app) => app.jobId === jobId
+      );
+      if (alreadyApplied) {
+        return res
+          .status(400)
+          .json({ msg: "You have already applied to this job" });
+      }
+
+      // Create new application object
+      const newApplication = {
+        jobId,
+        jobTitle,
+        company,
+        location,
+        salary,
+        personalInfo,
+        resume,
+        coverLetter,
+        appliedAt: new Date(),
+      };
+
+      // Push to user's applications array
+      user.applications.push(newApplication);
+      await user.save();
+
+      res.status(200).json({
+        msg: "Application submitted successfully",
+        application: newApplication,
+      });
+    } catch (error) {
+      console.error("Apply job error:", error);
+      res.status(500).json({ msg: "Server error" });
     }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-
-    if (!isMatch) {
-      return res.status(400).json({ msg: "Invalid credentials" });
-    }
-
-    const payload = {
-      user: {
-        id: user.id,
-        email: user.email,
-        userType: user.userType,
-      },
-    };
-
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
-
-    res.json({
-      token,
-      user: payload.user,
-    });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server error");
   }
-});
+);
 
 module.exports = router;
